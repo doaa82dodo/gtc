@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#0f766e">
+<link rel="manifest" href='data:application/json,{"name":"حضور الطلاب","short_name":"الحضور","display":"standalone","dir":"rtl","lang":"ar","start_url":".","background_color":"#f1f5f9","theme_color":"#0f766e","icons":[]}'>
+<title>حضور وغياب الطلاب</title>
+<style>
+*{box-sizing:border-box;font-family:Tahoma,Arial,sans-serif;-webkit-tap-highlight-color:transparent}
+body{margin:0;background:#f1f5f9;color:#0f172a;padding-bottom:80px}
+header{background:#0f766e;color:#fff;padding:12px 14px;position:sticky;top:0;z-index:5;display:flex;justify-content:space-between;align-items:center}
+header b{font-size:17px}
+.badge{font-size:12px;padding:3px 9px;border-radius:99px;background:#dc2626}
+.badge.on{background:#16a34a}
+.box{padding:14px;max-width:560px;margin:auto}
+input,select{width:100%;padding:12px;border:1px solid #cbd5e1;border-radius:10px;font-size:16px;margin:5px 0 10px;background:#fff}
+button{border:0;border-radius:10px;padding:11px 14px;font-size:15px;background:#0f766e;color:#fff;cursor:pointer}
+.row{display:flex;gap:8px}.row>*{flex:1}
+.gray{background:#64748b}
+.sum{display:flex;gap:6px;margin:10px 0;font-size:12px;text-align:center}
+.sum div{flex:1;background:#fff;border-radius:10px;padding:7px 2px}.sum b{display:block;font-size:18px}
+.st{background:#fff;border-radius:12px;padding:10px;margin-bottom:8px;box-shadow:0 1px 2px #0001}
+.nm{font-weight:bold;margin-bottom:8px}
+.nm small{color:#64748b;font-weight:normal;margin-inline-start:6px}
+.bt{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}
+.bt button{background:#e2e8f0;color:#334155;padding:9px 2px;font-size:13px}
+.bt .p.on{background:#16a34a;color:#fff}.bt .a.on{background:#dc2626;color:#fff}
+.bt .l.on{background:#f59e0b;color:#fff}.bt .e.on{background:#2563eb;color:#fff}
+.bar{position:fixed;bottom:0;inset-inline:0;background:#fff;padding:10px 14px calc(10px + env(safe-area-inset-bottom));box-shadow:0 -2px 8px #0002}
+#t{position:fixed;top:70px;inset-inline:20px;background:#0f172a;color:#fff;padding:10px;border-radius:10px;text-align:center;display:none;z-index:9}
+h2{margin:4px 0 12px}
+</style>
+</head>
+<body>
+<div id="t"></div>
+
+<div id="login" class="box">
+  <h2>🏫 تسجيل دخول المعلم</h2>
+  <label>رابط السكربت (Apps Script)</label>
+  <input id="url" type="url" dir="ltr" placeholder="https://script.google.com/macros/s/.../exec">
+  <label>كود المعلم</label>
+  <input id="code" type="password" placeholder="الكود السري">
+  <button style="width:100%" onclick="login()">دخول وتحميل الطلاب</button>
+  <p style="color:#64748b;font-size:13px">يلزم اتصال بالإنترنت عند أول دخول فقط، ثم يعمل التطبيق دون إنترنت.</p>
+</div>
+
+<div id="app" hidden>
+  <header><b>📋 حضور الطلاب</b><span id="bd" class="badge"></span></header>
+  <div class="box">
+    <div class="row">
+      <div><label>الصف</label><select id="cls" onchange="list()"></select></div>
+      <div><label>التاريخ</label><input id="dt" type="date" onchange="list()"></div>
+    </div>
+    <div class="sum" id="sum"></div>
+    <button class="gray" style="width:100%;margin-bottom:10px" onclick="allP()">✔ تحضير الكل (ثم عدّل الغائبين)</button>
+    <div id="list"></div>
+  </div>
+  <div class="bar row">
+    <button onclick="sync(1)" id="sb">🔄 مزامنة</button>
+    <button class="gray" onclick="out()" style="flex:.5">خروج</button>
+  </div>
+</div>
+
+<script>
+const $=s=>document.querySelector(s);
+const ST={p:'حاضر',a:'غائب',l:'متأخر',e:'بعذر'};
+let D=JSON.parse(localStorage.getItem('att')||'{}');D.recs=D.recs||{};
+const save=()=>localStorage.setItem('att',JSON.stringify(D));
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function toast(m){const t=$('#t');t.textContent=m;t.style.display='block';setTimeout(()=>t.style.display='none',2500)}
+const today=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
+
+function show(){
+  const ok=D.code&&D.roster;
+  $('#login').hidden=!!ok;$('#app').hidden=!ok;
+  if(ok){$('#dt').value=$('#dt').value||today();render()}
+}
+async function loadRoster(){
+  const r=await fetch(D.url+'?code='+encodeURIComponent(D.code));
+  const j=await r.json();if(!j.ok)throw new Error(j.err);
+  D.roster=j.classes;save();
+}
+async function login(){
+  D.url=$('#url').value.trim();D.code=$('#code').value.trim();
+  if(!D.url||!D.code)return toast('أدخل الرابط والكود');
+  try{toast('جاري التحميل...');await loadRoster();show()}
+  catch(e){D.roster=null;toast(e.message||'تعذر الاتصال')}
+}
+function out(){
+  const p=Object.values(D.recs).filter(r=>!r.y).length;
+  if(p&&!confirm('يوجد '+p+' سجل غير مزامن وسيُحذف. متابعة؟'))return;
+  localStorage.removeItem('att');D={recs:{}};show();
+}
+function render(){
+  const cs=$('#cls'),cur=cs.value||'0';
+  cs.innerHTML=D.roster.map((c,x)=>`<option value="${x}">${esc(c.n)}</option>`).join('');
+  cs.value=cur<D.roster.length?cur:'0';list();
+}
+function list(){
+  const c=D.roster[$('#cls').value],d=$('#dt').value;if(!c)return;
+  let n={p:0,a:0,l:0,e:0};
+  $('#list').innerHTML=c.s.map((s,x)=>{
+    const r=D.recs[[d,c.n,s.i].join('|')];if(r)n[r.s]++;
+    return `<div class="st"><div class="nm">${x+1}. ${esc(s.n)}<small>${esc(s.i)}</small></div><div class="bt">`+
+    Object.keys(ST).map(k=>`<button class="${k}${r&&r.s==k?' on':''}" data-x="${x}" data-s="${k}">${ST[k]}</button>`).join('')+'</div></div>';
+  }).join('');
+  const un=c.s.length-n.p-n.a-n.l-n.e;
+  $('#sum').innerHTML=Object.keys(ST).map(k=>`<div><b>${n[k]}</b>${ST[k]}</div>`).join('')+`<div><b>${un}</b>لم يُسجَّل</div>`;
+  badge();
+}
+function mark(x,s){
+  const c=D.roster[$('#cls').value],d=$('#dt').value,st=c.s[x];
+  D.recs[[d,c.n,st.i].join('|')]={d,c:c.n,i:st.i,n:st.n,s,t:Date.now(),y:0};
+}
+$('#list').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;
+  mark(+b.dataset.x,b.dataset.s);save();list();sync();
+});
+function allP(){
+  const c=D.roster[$('#cls').value],d=$('#dt').value;
+  c.s.forEach((s,x)=>{if(!D.recs[[d,c.n,s.i].join('|')])mark(x,'p')});
+  save();list();sync();
+}
+function badge(){
+  const p=Object.values(D.recs).filter(r=>!r.y).length,b=$('#bd'),on=navigator.onLine;
+  b.className='badge'+(on?' on':'');
+  b.textContent=(on?'متصل':'بدون إنترنت')+(p?' • '+p+' بانتظار المزامنة':' • ✓ متزامن');
+}
+let busy=0;
+async function sync(manual){
+  if(busy||!D.url)return;
+  if(!navigator.onLine){if(manual)toast('لا يوجد اتصال، سيتم الحفظ محليًا');return badge()}
+  busy=1;
+  const snap=Object.values(D.recs).filter(r=>!r.y).map(r=>[r,r.t]);
+  try{
+    if(snap.length){
+      const r=await fetch(D.url,{method:'POST',body:JSON.stringify({code:D.code,recs:snap.map(a=>a[0])})});
+      const j=await r.json();if(!j.ok)throw new Error(j.err);
+      snap.forEach(([r,t])=>{if(r.t===t)r.y=1});save();
+    }
+    await loadRoster();render();
+    if(manual)toast('تمت المزامنة ✓');
+  }catch(e){if(manual)toast('تعذرت المزامنة: '+e.message)}
+  busy=0;badge();
+}
+addEventListener('online',()=>sync());
+addEventListener('offline',badge);
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+show();sync();
+</script>
+</body>
+</html>
